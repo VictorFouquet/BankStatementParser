@@ -54,14 +54,42 @@ class BankStatementFile:
                         extracted.save_to_worksheet(row, worksheet)
                     row += 1
         workbook.close()
+class BankStatementConverter:
+    def __init__(self, input_folder):
+        self.input_folder = input_folder
 
-def get_folder_content(root):
-    files = [f for f in listdir(root) if isfile(join(root, f))]
-    
-    return [BankStatementFile(join(root, f), f) for f in files]
+    def extract_to_xlsx(self):
+        files = sorted(self.get_folder_content(), key=lambda file: file.file_name)
+        extracted = []
 
+        for f in files:
+            extracted.append(f.extract_data())
+        
+        workbook = xlsxwriter.Workbook('Expenses01.xlsx')
+        worksheet = workbook.add_worksheet()
+        row = 0
+        incomes = 0
+        expenses = 0
+        
+        for f in extracted:
+            for line in f:
+                if line.type == "expense":
+                    expenses += line.amount
+                    line.save_to_worksheet(row, worksheet)
+                else:
+                    incomes += line.amount
+                    line.save_to_worksheet(row, worksheet)
+                row += 1
+        print("Incomes: ", str(incomes))
+        print("Expenses: ", str(expenses))
+        print("Balance: " + str(incomes - expenses))
+        workbook.close()
+            
+    def get_folder_content(self):
+        files = [f for f in listdir(self.input_folder) if isfile(join(self.input_folder, f))]
+        
+        return [BankStatementFile(join(self.input_folder, f), f) for f in files]
 
 if __name__ == '__main__':
-    content = get_folder_content('/path/to/file.pdf')
-    for entry in content:
-        entry.extract_data()
+    converter = BankStatementConverter('/path/to/bank/statements/folder')
+    converter.extract_to_xlsx()
