@@ -11,7 +11,7 @@ import xlsxwriter
 
 
 DATA_PATTERN    = r"\b\d{2}/\d{2}.*\d*,\d{2}\b"
-EXPENSE_PATTERN = r"\b\d{2}/\d{2} (ACHAT|VIREMENT.*À|PRELEVEMENT).*\d*,\d{2}\b"
+EXPENSE_PATTERN = r"\b\d{2}/\d{2} (ACHAT|VIREMENT.*À|PRELEVEMENT|CARTE|.*COMMISSION PAIEMENT|.*COTISATION TRI).*\d*,\d{2}\b"
 
 
 class BankStatementLine:
@@ -36,24 +36,35 @@ class BankStatementFile:
 
     def extract_data(self):
         doc = convert_from_path(self.absolute_path)
-        workbook = xlsxwriter.Workbook('Expenses01.xlsx')
-        worksheet = workbook.add_worksheet()
-
+        lines = []
+        stop = False
+        search_for_total = False
+        print("Extracting: " + self.file_name)
         for page_number, page_data in enumerate(doc):
+            if stop:
+                break
+            print("Page: " + str(page_number + 1) + '/' + str(len(doc)))
             txt = pytesseract.image_to_string(page_data, lang='fra').encode('utf-8')
             decoded = txt.decode('utf-8')
-            row = 0
             for line in decoded.split("\n"):
+                if "Total des opérations" in line:
+                    if re.fullmatch(r".*(\d* \d\d\d|\d*),\d\d (\d* \d\d\d|\d*),\d\d", line):
+                        print(line)
+                        stop = True
+                        break
+                    else:
+                        search_for_total = True
+                elif re.fullmatch(r"(\d* \d\d\d|\d*),\d\d (\d* \d\d\d|\d*),\d\d", line) and search_for_total:
+                    print("Total des opérations " + line)
+                    stop = True
+                    break
+
                 if re.fullmatch(DATA_PATTERN, line):
                     extracted = BankStatementLine(line)
-                    if extracted.type == "expense":
-                        print(extracted.date + ": -" + str(extracted.amount))
-                        extracted.save_to_worksheet(row, worksheet)
-                    else:
-                        print(extracted.date + ": " + str(extracted.amount))
-                        extracted.save_to_worksheet(row, worksheet)
-                    row += 1
-        workbook.close()
+                    lines.append(extracted)
+        print()
+        return lines
+
 class BankStatementConverter:
     def __init__(self, input_folder):
         self.input_folder = input_folder
