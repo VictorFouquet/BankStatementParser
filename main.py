@@ -9,9 +9,9 @@ from pdf2image import convert_from_path
 from pytesseract import pytesseract
 import xlsxwriter
 
-NUMBER_PATTERN  = r"((?:\d{1,3}(?: \d{3})*|\d+),\d{2})"
+NUMBER_PATTERN  = r" ( ?(?:\d{1,3}(?: \d{3})*|\d+),\d{2})"
 DATA_PATTERN    = r"\b\d{2}/\d{2}.*((?:\d{1,3}(?: \d{3})*|\d+),\d{2})\b"
-EXPENSE_PATTERN = r"\b\d{2}/\d{2} (ACHAT|VIREMENT.*À|PRELEVEMENT|CARTE|.*COMMISSION PAIEMENT|.*COTISATION TRI).*((?:\d{1,3}(?: \d{3})*|\d+),\d{2})\b"
+EXPENSE_PATTERN = r"\b\d{2}/\d{2} (.*RETRAIT|ACHAT|VIREMENT.*À|PRELEVEMENT|CARTE|.*COMMISSION PAIEMENT|.*COTISATION TRI|CHEQUE N°|.*VIREMENT SEPA|AVIS TIERS DETENTEUR).*((?:\d{1,3}(?: \d{3})*|\d+),\d{2})\b"
 
 
 class BankStatementLine:
@@ -37,12 +37,10 @@ class BankStatementFile:
         self.total_expenses = -1
 
     def extract_totals(self, line):
-        print(line)
         line = line.replace("Total des opérations", "").strip()
         pattern = r"((?:\d{1,3}(?: \d{3})*|\d+),\d{2})"
         match = re.findall(pattern, line)
         if match:
-            print(match)
             num1, num2 = match
             self.total_expenses = float(num1.replace(" ", "").replace(",", "."))
             self.total_incomes = float(num2.replace(" ", "").replace(",", "."))
@@ -57,11 +55,9 @@ class BankStatementFile:
         for page_number, page_data in enumerate(doc):
             if stop:
                 break
-            print("Page: " + str(page_number + 1) + '/' + str(len(doc)))
             txt = pytesseract.image_to_string(page_data, lang='fra').encode('utf-8')
             decoded = txt.decode('utf-8')
             for line in decoded.split("\n"):
-                print(line)
                 if "Total des opérations" in line:
                     if re.fullmatch(r".*(\d* \d\d\d|\d*),\d\d (\d* \d\d\d|\d*),\d\d", line):
                         self.extract_totals(line)
@@ -77,8 +73,6 @@ class BankStatementFile:
                 if re.fullmatch(DATA_PATTERN, line):
                     extracted = BankStatementLine(line)
                     lines.append(extracted)
-        print("Total des opérations : " + str(self.total_expenses) + " " + str(self.total_incomes))
-        print()
         return lines
 
 class BankStatementConverter:
@@ -87,22 +81,19 @@ class BankStatementConverter:
 
     def extract_to_xlsx(self):
         files = sorted(self.get_folder_content(), key=lambda file: file.file_name)
-        extracted = []
-
-        for f in files:
-            extracted.append(f.extract_data())
-        
-        workbook = xlsxwriter.Workbook('Expenses01.xlsx')
-        worksheet = workbook.add_worksheet()
-        row = 0
         incomes = 0
         expenses = 0
+
+        for f in files:
+            extracted = f.extract_data()
         
-        for i in range(len(extracted)):
-            f = extracted[i]
+            workbook = xlsxwriter.Workbook(f'{f.file_name.split(".")[0]}.xlsx')
+            worksheet = workbook.add_worksheet()
+            row = 0
+
             file_incomes = 0
             file_expenses = 0
-            for line in f:
+            for line in extracted:
                 if line.type == "expense":
                     file_expenses += line.amount
                     line.save_to_worksheet(row, worksheet)
@@ -112,14 +103,15 @@ class BankStatementConverter:
                 row += 1
             incomes += file_incomes
             expenses += file_expenses
-            print(f"Expected: {str(files[i].total_expenses)} / Actual: {str(file_expenses)}")
-            print(f"Expected: {str(files[i].total_incomes)} / Actual: {str(file_incomes)}")
-            if abs(files[i].total_expenses - file_expenses) > 0.01 or abs(files[i].total_incomes - file_incomes) > 0.01:
-                print('INCONSITENCY IN FILE ' + files[i].file_name)
+            print(f"Expected incomes  : {str(f.total_incomes)} / Actual: {str(file_incomes)}")
+            print(f"Expected expenses : {str(f.total_expenses)} / Actual: {str(file_expenses)}")
+            if abs(f.total_expenses - file_expenses) > 0.01 or abs(f.total_incomes - file_incomes) > 0.01:
+                print('INCONSITENCY IN FILE ' + f.file_name)
+            workbook.close()
+            print()
         print("Incomes: ", str(incomes))
         print("Expenses: ", str(expenses))
         print("Balance: " + str(incomes - expenses))
-        workbook.close()
             
     def get_folder_content(self):
         files = [f for f in listdir(self.input_folder) if isfile(join(self.input_folder, f))]
